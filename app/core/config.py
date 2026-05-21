@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,8 @@ class Settings(BaseSettings):
     app_name: str = "taskflow-api"
     environment: Literal["development", "staging", "production"] = "development"
     debug: bool = False
+
+    database_url: PostgresDsn
 
 
 @lru_cache

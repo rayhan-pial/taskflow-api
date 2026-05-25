@@ -1,6 +1,7 @@
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any
 
-from fastapi import Depends
+from fastapi import Depends, Path
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import api_error
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import TokenPayload
 from app.services import user_service
@@ -54,3 +56,31 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_role(
+    *allowed: Role,
+) -> Callable[[User], Coroutine[Any, Any, User]]:
+    async def checker(current_user: CurrentUser) -> User:
+        if current_user.role not in allowed:
+            raise api_error(
+                status_code=403,
+                code="forbidden",
+                message="You do not have permission to perform this action.",
+            )
+        return current_user
+
+    return checker
+
+
+async def require_self_or_admin(
+    current_user: CurrentUser,
+    user_id: Annotated[int, Path(ge=1)],
+) -> User:
+    if current_user.id != user_id and current_user.role != Role.ADMIN:
+        raise api_error(
+            status_code=403,
+            code="forbidden",
+            message="You do not have permission to access this resource.",
+        )
+    return current_user

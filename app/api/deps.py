@@ -11,8 +11,10 @@ from app.core.security import decode_token
 from app.db.session import get_db
 from app.models.role import Role
 from app.models.user import User
+from app.models.workspace_member import WorkspaceMember
+from app.models.workspace_role import WorkspaceRole
 from app.schemas.auth import TokenPayload
-from app.services import user_service
+from app.services import user_service, workspace_service
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -84,3 +86,47 @@ async def require_self_or_admin(
             message="You do not have permission to access this resource.",
         )
     return current_user
+
+
+WORKSPACE_ROLE_RANK = {
+    WorkspaceRole.MEMBER: 1,
+    WorkspaceRole.ADMIN: 2,
+    WorkspaceRole.OWNER: 3,
+}
+
+
+def require_workspace_member(
+    min_role: WorkspaceRole = WorkspaceRole.MEMBER,
+) -> Callable[..., Coroutine[Any, Any, WorkspaceMember]]:
+    async def checker(
+        current_user: CurrentUser,
+        workspace_id: Annotated[int, Path(ge=1)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ) -> WorkspaceMember:
+        if await workspace_service.get_workspace(db, workspace_id) is None:
+            raise api_error(
+                status_code=404,
+                code="workspace_not_found",
+                message="Workspace not found.",
+            )
+
+        membership = await workspace_service.get_membership(
+            db, workspace_id, current_user.id
+        )
+        if membership is None:
+            raise api_error(
+                status_code=403,
+                code="not_a_member",
+                message="You are not a member of this workspace.",
+            )
+
+        if WORKSPACE_ROLE_RANK[membership.role] < WORKSPACE_ROLE_RANK[min_role]:
+            raise api_error(
+                status_code=403,
+                code="forbidden",
+                message="You do not have permission to perform this action.",
+            )
+
+        return membership
+
+    return checker
